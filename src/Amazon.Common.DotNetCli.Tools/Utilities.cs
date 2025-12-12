@@ -625,27 +625,7 @@ namespace Amazon.Common.DotNetCli.Tools
                 new DirectoryInfo(zipArchiveParentDirectory).Create();
             }
 
-#if NETCOREAPP3_1_OR_GREATER
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                BundleWithDotNetCompression(zipArchivePath, directory, logger);
-            }
-            else
-            {
-                // Use the native zip utility if it exist which will maintain linux/osx file permissions
-                var zipCLI = AbstractCLIWrapper.FindExecutableInPath("zip");
-                if (!string.IsNullOrEmpty(zipCLI))
-                {
-                    BundleWithZipCLI(zipCLI, zipArchivePath, directory, logger);
-                }
-                else
-                {
-                    throw new ToolsException("Failed to find the \"zip\" utility program in path. This program is required to maintain Linux file permissions in the zip archive.", ToolsException.CommonErrorCode.FailedToFindZipProgram);
-                }
-            }
-#else
             BundleWithDotNetCompression(zipArchivePath, directory, logger);
-#endif
         }
 
 
@@ -675,7 +655,7 @@ namespace Amazon.Common.DotNetCli.Tools
         }
 
         /// <summary>
-        /// Zip up the publish folder using the .NET compression libraries. This is what is used when run on Windows.
+        /// Zip up the publish folder using .NET's built-in compression which maintains Unix file permissions.
         /// </summary>
         /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
         /// <param name="publishLocation">The location to be bundled.</param>
@@ -687,65 +667,19 @@ namespace Amazon.Common.DotNetCli.Tools
                 var includedFiles = GetFilesToIncludeInArchive(publishLocation);
                 foreach (var kvp in includedFiles)
                 {
-                    zipArchive.CreateEntryFromFile(kvp.Value, kvp.Key);
+                    var entry = zipArchive.CreateEntry(kvp.Key, CompressionLevel.Optimal);
+                    
+                    // Set Unix file permissions
+                    // Standard file permissions: 0644 = rw-r--r--
+                    entry.ExternalAttributes = 0x1A4 << 16; // 0644 in octal = 420 in decimal = 0x1A4 in hex
+                    
+                    using (var entryStream = entry.Open())
+                    using (var fileStream = File.OpenRead(kvp.Value))
+                    {
+                        fileStream.CopyTo(entryStream);
+                    }
 
                     logger?.WriteLine($"... zipping: {kvp.Key}");
-                }
-            }
-        }
-
-        /// <summary>
-        /// Creates the deployment bundle using the native zip tool installed
-        /// on the system (default /usr/bin/zip). This is what is typically used on Linux and OSX
-        /// </summary>
-        /// <param name="zipCLI">The path to the located zip binary.</param>
-        /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
-        /// <param name="publishLocation">The location to be bundled.</param>
-        /// <param name="logger">Logger instance.</param>
-        private static void BundleWithZipCLI(string zipCLI, string zipArchivePath, string publishLocation, IToolLogger logger)
-        {
-            var args = new StringBuilder("\"" + zipArchivePath + "\"");
-
-            var allFiles = GetFilesToIncludeInArchive(publishLocation);
-            foreach (var kvp in allFiles)
-            {
-                args.AppendFormat(" \"{0}\"", kvp.Key);
-            }
-
-            var psiZip = new ProcessStartInfo
-            {
-                FileName = zipCLI,
-                Arguments = args.ToString(),
-                WorkingDirectory = publishLocation,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var handler = (DataReceivedEventHandler)((o, e) =>
-            {
-                if (string.IsNullOrEmpty(e.Data))
-                    return;
-                logger?.WriteLine("... zipping: " + e.Data);
-            });
-
-            using (var proc = new Process())
-            {
-                proc.StartInfo = psiZip;
-                proc.Start();
-
-                proc.ErrorDataReceived += handler;
-                proc.OutputDataReceived += handler;
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-
-                proc.EnableRaisingEvents = true;
-                proc.WaitForExit();
-
-                if (proc.ExitCode == 0)
-                {
-                    logger?.WriteLine(string.Format("Created publish archive ({0}).", zipArchivePath));
                 }
             }
         }
