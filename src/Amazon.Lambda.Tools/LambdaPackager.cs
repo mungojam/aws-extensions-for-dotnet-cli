@@ -636,10 +636,10 @@ namespace Amazon.Lambda.Tools
                     
                     var entry = zipArchive.CreateEntry(relativePath, CompressionLevel.Optimal);
                     
-                    // Set Unix file permissions to match the behavior of build-lambda-zip
+                    // Set Unix file permissions following the Linux approach
                     // ExternalAttributes: Unix file permissions in the high-order 16 bits
-                    // Using 0777 (rwxrwxrwx) for all files to match original build-lambda-zip.go behavior
-                    entry.ExternalAttributes = 0x1FF << 16; // 0777 in octal = 511 in decimal = 0x1FF in hex
+                    // Bootstrap files need executable permissions, other files get standard permissions
+                    entry.ExternalAttributes = DetermineFilePermissions(relativePath) << 16;
                     
                     using (var entryStream = entry.Open())
                     using (var fileStream = File.OpenRead(absolutePath))
@@ -652,6 +652,30 @@ namespace Amazon.Lambda.Tools
             }
             
             logger?.WriteLine($"Created publish archive ({zipArchivePath}).");
+        }
+        
+        /// <summary>
+        /// Determines the Unix file permissions for a given file path.
+        /// Following Linux conventions: bootstrap files get executable permissions, others get standard permissions.
+        /// </summary>
+        /// <param name="relativePath">The relative path of the file in the zip archive.</param>
+        /// <returns>Unix file permissions as an integer.</returns>
+        private static int DetermineFilePermissions(string relativePath)
+        {
+            // Normalize path separators to forward slashes
+            var normalizedPath = relativePath.Replace("\\", "/");
+            
+            // Bootstrap files need executable permissions
+            if (normalizedPath.Equals(BootstrapFilename, StringComparison.OrdinalIgnoreCase) ||
+                normalizedPath.EndsWith("/" + BootstrapFilename, StringComparison.OrdinalIgnoreCase))
+            {
+                // 0755 = rwxr-xr-x (executable)
+                return 0x1ED; // 0755 in octal = 493 in decimal = 0x1ED in hex
+            }
+            
+            // Regular files get standard permissions
+            // 0644 = rw-r--r-- (regular file)
+            return 0x1A4; // 0644 in octal = 420 in decimal = 0x1A4 in hex
         }
 
         /// <summary>
