@@ -669,9 +669,10 @@ namespace Amazon.Common.DotNetCli.Tools
                 {
                     var entry = zipArchive.CreateEntry(kvp.Key, CompressionLevel.Optimal);
                     
-                    // Set Unix file permissions
-                    // Standard file permissions: 0644 = rw-r--r--
-                    entry.ExternalAttributes = 0x1A4 << 16; // 0644 in octal = 420 in decimal = 0x1A4 in hex
+                    // Set Unix file permissions to match the behavior of build-lambda-zip
+                    // ExternalAttributes: Unix file permissions in the high-order 16 bits
+                    // Using 0777 (rwxrwxrwx) for all files to match original build-lambda-zip.go behavior
+                    entry.ExternalAttributes = 0x1FF << 16; // 0777 in octal = 511 in decimal = 0x1FF in hex
                     
                     using (var entryStream = entry.Open())
                     using (var fileStream = File.OpenRead(kvp.Value))

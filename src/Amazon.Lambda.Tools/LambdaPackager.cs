@@ -636,10 +636,10 @@ namespace Amazon.Lambda.Tools
                     
                     var entry = zipArchive.CreateEntry(relativePath, CompressionLevel.Optimal);
                     
-                    // Set Unix file permissions
-                    // CreatorVersion: upper byte = OS (3 = Unix), lower byte = version
+                    // Set Unix file permissions to match the behavior of build-lambda-zip
                     // ExternalAttributes: Unix file permissions in the high-order 16 bits
-                    entry.ExternalAttributes = DetermineFilePermissions(relativePath) << 16;
+                    // Using 0777 (rwxrwxrwx) for all files to match original build-lambda-zip.go behavior
+                    entry.ExternalAttributes = 0x1FF << 16; // 0777 in octal = 511 in decimal = 0x1FF in hex
                     
                     using (var entryStream = entry.Open())
                     using (var fileStream = File.OpenRead(absolutePath))
@@ -652,29 +652,6 @@ namespace Amazon.Lambda.Tools
             }
             
             logger?.WriteLine($"Created publish archive ({zipArchivePath}).");
-        }
-        
-        /// <summary>
-        /// Determines the Unix file permissions for a given file path.
-        /// Bootstrap files get executable permissions (0755), other files get standard permissions (0644).
-        /// </summary>
-        /// <param name="relativePath">The relative path of the file in the zip archive.</param>
-        /// <returns>Unix file permissions as an integer.</returns>
-        private static int DetermineFilePermissions(string relativePath)
-        {
-            // Normalize path separators to forward slashes
-            var normalizedPath = relativePath.Replace("\\", "/");
-            
-            // Check if this is a bootstrap file or in a bin directory (likely executable)
-            if (normalizedPath.Equals(BootstrapFilename, StringComparison.OrdinalIgnoreCase) ||
-                normalizedPath.EndsWith("/" + BootstrapFilename, StringComparison.OrdinalIgnoreCase))
-            {
-                // 0755 = rwxr-xr-x (executable)
-                return 0x1ED; // 0755 in octal = 493 in decimal = 0x1ED in hex
-            }
-            
-            // 0644 = rw-r--r-- (regular file)
-            return 0x1A4; // 0644 in octal = 420 in decimal = 0x1A4 in hex
         }
 
         /// <summary>
