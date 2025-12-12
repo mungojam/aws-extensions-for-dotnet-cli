@@ -656,6 +656,8 @@ namespace Amazon.Common.DotNetCli.Tools
 
         /// <summary>
         /// Zip up the publish folder using .NET's built-in compression which maintains Unix file permissions.
+        /// On Windows: sets all files to 0777 (matching old build-lambda-zip.exe behavior)
+        /// On Linux: preserves existing file permissions from filesystem (matching old native zip behavior)
         /// </summary>
         /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
         /// <param name="publishLocation">The location to be bundled.</param>
@@ -669,10 +671,10 @@ namespace Amazon.Common.DotNetCli.Tools
                 {
                     var entry = zipArchive.CreateEntry(kvp.Key);
                     
-                    // Set Unix file permissions following the Linux approach
-                    // ExternalAttributes: Unix file permissions in the high-order 16 bits
-                    // Using standard permissions: 0644 (rw-r--r--) for all files
-                    entry.ExternalAttributes = 0x1A4 << 16; // 0644 in octal = 420 in decimal = 0x1A4 in hex
+                    // Set Unix file permissions
+                    // On Windows: set all files to 0777 (matching old build-lambda-zip.exe behavior)
+                    // On Linux: preserve existing file permissions from filesystem (matching old native zip behavior)
+                    entry.ExternalAttributes = DetermineFilePermissions(kvp.Value) << 16;
                     
                     using (var entryStream = entry.Open())
                     using (var fileStream = File.OpenRead(kvp.Value))
@@ -683,6 +685,82 @@ namespace Amazon.Common.DotNetCli.Tools
                     logger?.WriteLine($"... zipping: {kvp.Key}");
                 }
             }
+        }
+        
+        /// <summary>
+        /// Determines the Unix file permissions for a given file path.
+        /// On Windows: returns 0777 for all files (matching old build-lambda-zip.exe behavior)
+        /// On Linux: returns actual file permissions from filesystem (matching old native zip behavior)
+        /// </summary>
+        /// <param name="filePath">The absolute path of the file.</param>
+        /// <returns>Unix file permissions as an integer.</returns>
+        private static int DetermineFilePermissions(string filePath)
+        {
+#if NETCOREAPP3_1_OR_GREATER
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            {
+                // On Windows, set all files to 0777 (rwxrwxrwx) to match old build-lambda-zip.exe behavior
+                return 0x1FF; // 0777 in octal = 511 in decimal = 0x1FF in hex
+            }
+            else
+            {
+                // On Linux/macOS, get actual file permissions from filesystem to match old native zip behavior
+                try
+                {
+                    // Use stat command to get file permissions
+                    var startInfo = new ProcessStartInfo
+                    {
+                        FileName = "stat",
+                        Arguments = RuntimeInformation.IsOSPlatform(OSPlatform.OSX) 
+                            ? $"-f %Lp \"{filePath}\"" 
+                            : $"-c %a \"{filePath}\"",
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true,
+                        UseShellExecute = false,
+                        CreateNoWindow = true
+                    };
+                    
+                    using (var process = Process.Start(startInfo))
+                    {
+                        if (process != null)
+                        {
+                            process.WaitForExit();
+                            if (process.ExitCode == 0)
+                            {
+                                var output = process.StandardOutput.ReadToEnd().Trim();
+                                if (int.TryParse(output, System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowTrailingWhite, null, out var octalValue))
+                                {
+                                    // Convert octal string to decimal
+                                    var decimalValue = Convert.ToInt32(output, 8);
+                                    return decimalValue;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Fallback: check if file looks executable
+                    var fileName = Path.GetFileName(filePath);
+                    if (fileName.Equals("bootstrap", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return 0x1ED; // 0755
+                    }
+                    return 0x1A4; // 0644
+                }
+                catch
+                {
+                    // Fallback to sensible defaults if we can't get permissions
+                    var fileName = Path.GetFileName(filePath);
+                    if (fileName.Equals("bootstrap", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return 0x1ED; // 0755
+                    }
+                    return 0x1A4; // 0644
+                }
+            }
+#else
+            // On older frameworks, set all files to 0777 (same as Windows behavior)
+            return 0x1FF;
+#endif
         }
 
         public static async Task ValidateBucketRegionAsync(IAmazonS3 s3Client, string s3Bucket)
