@@ -634,7 +634,7 @@ namespace Amazon.Lambda.Tools
                     var relativePath = kvp.Key;
                     var absolutePath = kvp.Value;
                     
-                    var entry = zipArchive.CreateEntry(relativePath, CompressionLevel.Optimal);
+                    var entry = zipArchive.CreateEntry(relativePath);
                     
                     // Set Unix file permissions following the Linux approach
                     // ExternalAttributes: Unix file permissions in the high-order 16 bits

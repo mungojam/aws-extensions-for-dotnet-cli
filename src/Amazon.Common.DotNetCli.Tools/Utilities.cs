@@ -667,7 +667,7 @@ namespace Amazon.Common.DotNetCli.Tools
                 var includedFiles = GetFilesToIncludeInArchive(publishLocation);
                 foreach (var kvp in includedFiles)
                 {
-                    var entry = zipArchive.CreateEntry(kvp.Key, CompressionLevel.Optimal);
+                    var entry = zipArchive.CreateEntry(kvp.Key);
                     
                     // Set Unix file permissions following the Linux approach
                     // ExternalAttributes: Unix file permissions in the high-order 16 bits
