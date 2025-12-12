@@ -672,8 +672,8 @@ namespace Amazon.Common.DotNetCli.Tools
                     var entry = zipArchive.CreateEntry(kvp.Key);
                     
                     // Set Unix file permissions
-                    // On Windows: set all files to 0777 (matching old build-lambda-zip.exe behavior)
-                    // On Linux: preserve existing file permissions from filesystem (matching old native zip behavior)
+                    // On Windows: set all files to 0777
+                    // On Linux: preserve existing file permissions from filesystem
                     entry.ExternalAttributes = DetermineFilePermissions(kvp.Value) << 16;
                     
                     using (var entryStream = entry.Open())
