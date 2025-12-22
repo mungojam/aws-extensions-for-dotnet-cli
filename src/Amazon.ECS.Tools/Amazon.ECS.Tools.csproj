@@ -4,12 +4,10 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFrameworks>net6.0;net8.0</TargetFrameworks>
+    <TargetFrameworks>net472;net8.0</TargetFrameworks>
     <PackageId>Amazon.ECS.Tools</PackageId>
     <PackageTags>AWS;Amazon;Docker;ECS</PackageTags>
-    <PackAsTool>true</PackAsTool>
     <ToolCommandName>dotnet-ecs</ToolCommandName>
-    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <Version>4.0.0</Version>
     <AssemblyName>dotnet-ecs</AssemblyName>
     <Company>Amazon.com, Inc</Company>
@@ -22,6 +20,12 @@
         the source code here is also copied into the AWS VS Toolkit.
     -->
     <LangVersion>7.3</LangVersion>
+  </PropertyGroup>
+
+  <!-- PackAsTool only for .NET Core targets -->
+  <PropertyGroup Condition="'$(TargetFramework)' == 'net8.0'">
+    <PackAsTool>true</PackAsTool>
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
   </PropertyGroup>
 
   <ItemGroup>

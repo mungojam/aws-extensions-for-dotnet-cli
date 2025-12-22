@@ -689,14 +689,17 @@ namespace Amazon.Common.DotNetCli.Tools
         
         /// <summary>
         /// Determines the Unix file permissions for a given file path.
-        /// On Windows: returns 0777 for all files (matching old build-lambda-zip.exe behavior)
-        /// On Linux: returns actual file permissions from filesystem (matching old native zip behavior)
+        /// On .NET Framework or Windows: returns 0777 for all files (matching old build-lambda-zip.exe behavior)
+        /// On .NET Core/Linux/macOS: returns actual file permissions from filesystem (matching old native zip behavior)
         /// </summary>
         /// <param name="filePath">The absolute path of the file.</param>
         /// <returns>Unix file permissions as an integer.</returns>
         private static int DetermineFilePermissions(string filePath)
         {
-#if NETCOREAPP3_1_OR_GREATER
+#if NETFRAMEWORK
+            // On .NET Framework (used by AWS Toolkit for VS), set all files to 0777
+            return 0x1FF; // 0777 in octal = 511 in decimal = 0x1FF in hex
+#else
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 // On Windows, set all files to 0777 (rwxrwxrwx) to match old build-lambda-zip.exe behavior
@@ -707,44 +710,8 @@ namespace Amazon.Common.DotNetCli.Tools
                 // On Linux/macOS, get actual file permissions from filesystem to match old native zip behavior
                 try
                 {
-                    // Use stat command to get file permissions
-                    var startInfo = new ProcessStartInfo
-                    {
-                        FileName = "stat",
-                        Arguments = RuntimeInformation.IsOSPlatform(OSPlatform.OSX) 
-                            ? $"-f %Lp \"{filePath}\"" 
-                            : $"-c %a \"{filePath}\"",
-                        RedirectStandardOutput = true,
-                        RedirectStandardError = true,
-                        UseShellExecute = false,
-                        CreateNoWindow = true
-                    };
-                    
-                    using (var process = Process.Start(startInfo))
-                    {
-                        if (process != null)
-                        {
-                            process.WaitForExit();
-                            if (process.ExitCode == 0)
-                            {
-                                var output = process.StandardOutput.ReadToEnd().Trim();
-                                if (int.TryParse(output, System.Globalization.NumberStyles.AllowLeadingWhite | System.Globalization.NumberStyles.AllowTrailingWhite, null, out var octalValue))
-                                {
-                                    // Convert octal string to decimal
-                                    var decimalValue = Convert.ToInt32(output, 8);
-                                    return decimalValue;
-                                }
-                            }
-                        }
-                    }
-                    
-                    // Fallback: check if file looks executable
-                    var fileName = Path.GetFileName(filePath);
-                    if (fileName.Equals("bootstrap", StringComparison.OrdinalIgnoreCase))
-                    {
-                        return 0x1ED; // 0755
-                    }
-                    return 0x1A4; // 0644
+                    var mode = File.GetUnixFileMode(filePath);
+                    return (int)mode;
                 }
                 catch
                 {
@@ -757,9 +724,6 @@ namespace Amazon.Common.DotNetCli.Tools
                     return 0x1A4; // 0644
                 }
             }
-#else
-            // On older frameworks, set all files to 0777 (same as Windows behavior)
-            return 0x1FF;
 #endif
         }
 
