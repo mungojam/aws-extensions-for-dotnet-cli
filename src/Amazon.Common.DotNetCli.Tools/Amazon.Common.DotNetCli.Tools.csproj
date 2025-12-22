@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
   <Import Project="..\..\buildtools\common.props" />
   <PropertyGroup>
-    <TargetFrameworks>net472;net8.0</TargetFrameworks>
+    <TargetFramework>net8.0</TargetFramework>
     <!-- 
         This is explicitly set to 7.3 to match what the AWS VS Toolkit uses. This is required because
         the source code here is also copied into the AWS VS Toolkit.
@@ -16,10 +16,6 @@
     <PackageReference Include="AWSSDK.SecurityToken" Version="4.0.2.1" />
     <PackageReference Include="AWSSDK.SSO" Version="4.0.1.1" />
     <PackageReference Include="AWSSDK.SSOOIDC" Version="4.0.1.1" />
-  </ItemGroup>
-  <ItemGroup Condition="'$(TargetFramework)' == 'net472'">
-    <PackageReference Include="System.Net.Http" Version="4.3.4" />
-    <Reference Include="System.IO.Compression" />
   </ItemGroup>
   <PropertyGroup>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
