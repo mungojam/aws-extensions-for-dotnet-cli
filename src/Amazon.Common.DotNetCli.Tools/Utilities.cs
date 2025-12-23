@@ -656,8 +656,8 @@ namespace Amazon.Common.DotNetCli.Tools
 
         /// <summary>
         /// Zip up the publish folder using .NET's built-in compression which maintains Unix file permissions.
-        /// On Windows: sets all files to 0777 (matching old build-lambda-zip.exe behavior)
-        /// On Linux: preserves existing file permissions from filesystem (matching old native zip behavior)
+        /// On Windows: sets all files to 0777 (full permissions)
+        /// On Linux: preserves existing file permissions from filesystem
         /// </summary>
         /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
         /// <param name="publishLocation">The location to be bundled.</param>
@@ -690,7 +690,7 @@ namespace Amazon.Common.DotNetCli.Tools
         /// <summary>
         /// Determines the Unix file permissions for a given file path.
         /// On .NET Framework or Windows: returns 0777 for all files (matching old build-lambda-zip.exe behavior)
-        /// On .NET Core/Linux/macOS: returns actual file permissions from filesystem (matching old native zip behavior)
+        /// On .NET Core/Linux/macOS: returns actual file permissions from filesystem
         /// </summary>
         /// <param name="filePath">The absolute path of the file.</param>
         /// <returns>Unix file permissions as an integer.</returns>
