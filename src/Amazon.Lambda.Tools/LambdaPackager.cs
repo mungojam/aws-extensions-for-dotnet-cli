@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Reflection;
 using System.Runtime.InteropServices;
@@ -23,15 +24,6 @@ namespace Amazon.Lambda.Tools
         private const string AmazonLinuxNameInOSReleaseFile = "NAME=\"Amazon Linux\"";
         private const string AmazonLinux2InOSReleaseFile = "VERSION=\"2\"";
         private const string AmazonLinux2023InOSReleaseFile = "VERSION=\"2023\"";
-#if NETCOREAPP3_1_OR_GREATER        
-        private static readonly string BuildLambdaZipCliPath = Path.Combine(
-            Path.GetDirectoryName(new Uri(Assembly.GetExecutingAssembly().Location).LocalPath),
-            "Resources\\build-lambda-zip.exe");
-#else
-        private static readonly string BuildLambdaZipCliPath = Path.Combine(
-            Path.GetDirectoryName(new Uri(Assembly.GetExecutingAssembly().CodeBase).LocalPath),
-            "Resources\\build-lambda-zip.exe");
-#endif
         static IDictionary<string, Version> NETSTANDARD_LIBRARY_VERSIONS = new Dictionary<string, Version>
         {
             { "netcoreapp1.0", Version.Parse("1.6.0") },
@@ -282,54 +274,14 @@ namespace Amazon.Lambda.Tools
 
         public static void BundleDirectory(string zipArchivePath, string sourceDirectory, bool flattenRuntime, IToolLogger logger)
         {
-#if NETCOREAPP3_1_OR_GREATER
-            if(RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                BundleWithBuildLambdaZip(zipArchivePath, sourceDirectory, flattenRuntime, logger);
-            }
-            else
-            {
-                // Use the native zip utility if it exist which will maintain linux/osx file permissions
-                var zipCLI = LambdaDotNetCLIWrapper.FindExecutableInPath("zip");
-                if (!string.IsNullOrEmpty(zipCLI))
-                {
-                    BundleWithZipCLI(zipCLI, zipArchivePath, sourceDirectory, flattenRuntime, logger);
-                }
-                else
-                {
-                    throw new LambdaToolsException("Failed to find the \"zip\" utility program in path. This program is required to maintain Linux file permissions in the zip archive.", LambdaToolsException.LambdaErrorCode.FailedToFindZipProgram);
-                }
-            }
-#else
-            BundleWithBuildLambdaZip(zipArchivePath, sourceDirectory, flattenRuntime, logger);
-#endif            
+            var includedFiles = GetFilesToIncludeInArchive(sourceDirectory, flattenRuntime);
+            BundleWithDotNetCompression(zipArchivePath, sourceDirectory, includedFiles, logger);            
         }
 
         public static void BundleFiles(string zipArchivePath, string rootDirectory, string[] files, IToolLogger logger)
         {
             var includedFiles = ConvertToMapOfFiles(rootDirectory, files);
-
-#if NETCOREAPP3_1_OR_GREATER
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            {
-                BundleWithBuildLambdaZip(zipArchivePath, rootDirectory, includedFiles, logger);
-            }
-            else
-            {
-                // Use the native zip utility if it exist which will maintain linux/osx file permissions
-                var zipCLI = LambdaDotNetCLIWrapper.FindExecutableInPath("zip");
-                if (!string.IsNullOrEmpty(zipCLI))
-                {
-                    BundleWithZipCLI(zipCLI, zipArchivePath, rootDirectory, includedFiles, logger);
-                }
-                else
-                {
-                    throw new LambdaToolsException("Failed to find the \"zip\" utility program in path. This program is required to maintain Linux file permissions in the zip archive.", LambdaToolsException.LambdaErrorCode.FailedToFindZipProgram);
-                }
-            }
-#else
-                BundleWithBuildLambdaZip(zipArchivePath, rootDirectory, includedFiles, logger);
-#endif
+            BundleWithDotNetCompression(zipArchivePath, rootDirectory, includedFiles, logger);
         }
 
 
@@ -665,97 +617,81 @@ namespace Amazon.Lambda.Tools
         }
 
         /// <summary>
-        /// Zip up the publish folder using the build-lambda-zip utility which will maintain linux/osx file permissions.
-        /// This is what is used when run on Windows.
-        /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
-        /// <param name="publishLocation">The location to be bundled.</param>
-        /// <param name="flattenRuntime">If true the runtimes folder will be flatten</param>
-        /// <param name="logger">Logger instance.</param>
-        private static void BundleWithBuildLambdaZip(string zipArchivePath, string publishLocation, bool flattenRuntime, IToolLogger logger)
-        {
-            var includedFiles = GetFilesToIncludeInArchive(publishLocation, flattenRuntime);
-            BundleWithBuildLambdaZip(zipArchivePath, publishLocation, includedFiles, logger);
-        }
-
-        /// <summary>
-        /// Zip up the publish folder using the build-lambda-zip utility which will maintain linux/osx file permissions.
-        /// This is what is used when run on Windows.
+        /// Zip up the publish folder using .NET's built-in compression.
         /// </summary>
         /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
         /// <param name="rootDirectory">The root directory where all of the relative paths in includedFiles is pointing to.</param>
         /// <param name="includedFiles">Map of relative to absolute path of files to include in bundle.</param>
         /// <param name="logger">Logger instance.</param>
-        private static void BundleWithBuildLambdaZip(string zipArchivePath, string rootDirectory, IDictionary<string, string> includedFiles, IToolLogger logger)
+        private static void BundleWithDotNetCompression(string zipArchivePath, string rootDirectory, IDictionary<string, string> includedFiles, IToolLogger logger)
         {               
-            if (!File.Exists(BuildLambdaZipCliPath))
-            {
-                throw new LambdaToolsException("Failed to find the \"build-lambda-zip\" utility. This program is required to maintain Linux file permissions in the zip archive.", LambdaToolsException.LambdaErrorCode.FailedToFindZipProgram);
-            }
-            
             EnsureBootstrapLinuxLineEndings(rootDirectory, includedFiles);
-                        
-            //Write the files to disk to avoid the command line size limit when we have a large number of files to zip.            
-            var inputFilename = zipArchivePath + ".txt";
-            using(var writer = new StreamWriter(inputFilename))
-            {                            
+            
+            using (var zipArchive = ZipFile.Open(zipArchivePath, ZipArchiveMode.Create))
+            {
                 foreach (var kvp in includedFiles)
                 {
-                    writer.WriteLine(kvp.Key);                    
-                }
-            }
-
-            var args = new StringBuilder($"-o \"{zipArchivePath}\" -i \"{inputFilename}\"");
-
-            var psiZip = new ProcessStartInfo
-            {
-                FileName = BuildLambdaZipCliPath,
-                Arguments = args.ToString(),
-                WorkingDirectory = rootDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var handler = (DataReceivedEventHandler)((o, e) =>
-            {
-                if (string.IsNullOrEmpty(e.Data))
-                    return;
-                logger?.WriteLine("... zipping: " + e.Data);
-            });
-
-            try
-            {
-                using (var proc = new Process())
-                {
-                    proc.StartInfo = psiZip;
-                    proc.Start();
-
-                    proc.ErrorDataReceived += handler;
-                    proc.OutputDataReceived += handler;
-                    proc.BeginOutputReadLine();
-                    proc.BeginErrorReadLine();
-
-                    proc.EnableRaisingEvents = true;
-                    proc.WaitForExit();
-
-                    if (proc.ExitCode == 0)
+                    var relativePath = kvp.Key;
+                    var absolutePath = kvp.Value;
+                    
+                    var entry = zipArchive.CreateEntry(relativePath);
+                    
+                    // Set Unix file permissions
+                    // On Windows: set all files to 0777
+                    // On Linux: preserve existing file permissions from filesystem
+                    entry.ExternalAttributes = DetermineFilePermissions(absolutePath) << 16;
+                    
+                    using (var entryStream = entry.Open())
+                    using (var fileStream = File.OpenRead(absolutePath))
                     {
-                        logger?.WriteLine(string.Format("Created publish archive ({0}).", zipArchivePath));
+                        fileStream.CopyTo(entryStream);
                     }
+                    
+                    logger?.WriteLine($"... zipping: {relativePath}");
                 }
             }
-            finally
+            
+            logger?.WriteLine($"Created publish archive ({zipArchivePath}).");
+        }
+        
+        /// <summary>
+        /// Determines the Unix file permissions for a given file path.
+        /// On .NET Framework or Windows: returns 0777 for all files
+        /// On .NET Core/Linux/macOS: returns actual file permissions from filesystem
+        /// </summary>
+        /// <param name="filePath">The absolute path of the file.</param>
+        /// <returns>Unix file permissions as an integer.</returns>
+        private static int DetermineFilePermissions(string filePath)
+        {
+#if NETFRAMEWORK
+            // On .NET Framework (used by AWS Toolkit for VS), set all files to 0777
+            return 0x1FF; // 0777 in octal = 511 in decimal = 0x1FF in hex
+#else
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
+                // On Windows, set all files to 0777 (rwxrwxrwx)
+                return 0x1FF; // 0777 in octal = 511 in decimal = 0x1FF in hex
+            }
+            else
+            {
+                // On Linux/macOS, get actual file permissions from filesystem
                 try
                 {
-                    File.Delete(inputFilename);
+                    var mode = File.GetUnixFileMode(filePath);
+                    return (int)mode;
                 }
-                catch (Exception e)
+                catch
                 {
-                    logger?.WriteLine($"Warning: Unable to delete temporary input file, {inputFilename}, after zipping files: {e.Message}");
+                    // Fallback to sensible defaults if we can't get permissions
+                    var fileName = Path.GetFileName(filePath);
+                    if (fileName.Equals("bootstrap", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return 0x1ED; // 0755
+                    }
+                    return 0x1A4; // 0644
                 }
-            }                        
+            }
+#endif
         }
 
         /// <summary>
@@ -805,79 +741,6 @@ namespace Amazon.Lambda.Tools
                 }
             }
             return false;
-        }
-
-        /// <summary>
-        /// Creates the deployment bundle using the native zip tool installed
-        /// on the system (default /usr/bin/zip). This is what is typically used on Linux and OSX
-        /// </summary>
-        /// <param name="zipCLI">The path to the located zip binary.</param>
-        /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
-        /// <param name="publishLocation">The location to be bundled.</param>
-        /// <param name="flattenRuntime">If true the runtimes folder will be flatten</param>
-        /// <param name="logger">Logger instance.</param>
-        private static void BundleWithZipCLI(string zipCLI, string zipArchivePath, string publishLocation, bool flattenRuntime, IToolLogger logger)
-        {
-            var allFiles = GetFilesToIncludeInArchive(publishLocation, flattenRuntime);
-            BundleWithZipCLI(zipCLI, zipArchivePath, publishLocation, allFiles, logger);
-        }
-
-        /// <summary>
-        /// Creates the deployment bundle using the native zip tool installed
-        /// on the system (default /usr/bin/zip). This is what is typically used on Linux and OSX
-        /// </summary>
-        /// <param name="zipCLI">The path to the located zip binary.</param>
-        /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
-        /// <param name="rootDirectory">The root directory where all of the relative paths in includedFiles is pointing to.</param>
-        /// <param name="includedFiles">Map of relative to absolute path of files to include in bundle.</param>
-        /// <param name="logger">Logger instance.</param>
-        private static void BundleWithZipCLI(string zipCLI, string zipArchivePath, string rootDirectory, IDictionary<string, string> includedFiles, IToolLogger logger)
-        {
-            EnsureBootstrapLinuxLineEndings(rootDirectory, includedFiles);
-            
-            var args = new StringBuilder("\"" + zipArchivePath + "\"");
-
-            foreach (var kvp in includedFiles)
-            {
-                args.AppendFormat(" \"{0}\"", kvp.Key);
-            }
-
-            var psiZip = new ProcessStartInfo
-            {
-                FileName = zipCLI,
-                Arguments = args.ToString(),
-                WorkingDirectory = rootDirectory,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true
-            };
-
-            var handler = (DataReceivedEventHandler)((o, e) =>
-            {
-                if (string.IsNullOrEmpty(e.Data))
-                    return;
-                logger?.WriteLine("... zipping: " + e.Data);
-            });
-
-            using (var proc = new Process())
-            {
-                proc.StartInfo = psiZip;
-                proc.Start();
-
-                proc.ErrorDataReceived += handler;
-                proc.OutputDataReceived += handler;
-                proc.BeginOutputReadLine();
-                proc.BeginErrorReadLine();
-
-                proc.EnableRaisingEvents = true;
-                proc.WaitForExit();
-
-                if (proc.ExitCode == 0)
-                {
-                    logger?.WriteLine(string.Format("Created publish archive ({0}).", zipArchivePath));
-                }
-            }
         }
 
         internal static void LogDeprecationMessagesIfNecessary(IToolLogger logger, string targetFramework)

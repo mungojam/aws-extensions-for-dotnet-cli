@@ -1025,5 +1025,38 @@ namespace Amazon.Lambda.Tools
             }
 #endif
         }
+
+        /// <summary>
+        /// Helper method to check if a path is fully qualified. This is needed for .NET Framework 4.7.2 compatibility.
+        /// </summary>
+        /// <param name="path">The path to check</param>
+        /// <returns>True if the path is fully qualified, false otherwise</returns>
+        public static bool IsPathFullyQualified(string path)
+        {
+#if NETFRAMEWORK
+            // .NET Framework doesn't have Path.IsPathFullyQualified, so we implement it
+            if (string.IsNullOrWhiteSpace(path))
+                return false;
+
+            if (path.Length < 2)
+                return false;
+
+            // Check for Windows absolute paths (C:\, D:\, etc.)
+            if (path[1] == ':' && (path[0] >= 'A' && path[0] <= 'Z' || path[0] >= 'a' && path[0] <= 'z'))
+                return true;
+
+            // Check for UNC paths (\\server\share)
+            if (path.Length >= 2 && path[0] == '\\' && path[1] == '\\')
+                return true;
+
+            // Check for Unix absolute paths (/)
+            if (path[0] == '/')
+                return true;
+
+            return false;
+#else
+            return Path.IsPathFullyQualified(path);
+#endif
+        }
     }
 }
