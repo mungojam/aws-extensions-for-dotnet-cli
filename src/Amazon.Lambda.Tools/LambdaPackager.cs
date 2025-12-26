@@ -617,7 +617,7 @@ namespace Amazon.Lambda.Tools
         }
 
         /// <summary>
-        /// Zip up the publish folder using .NET's built-in compression which maintains Unix file permissions.
+        /// Zip up the publish folder using .NET's built-in compression.
         /// </summary>
         /// <param name="zipArchivePath">The path and name of the zip archive to create.</param>
         /// <param name="rootDirectory">The root directory where all of the relative paths in includedFiles is pointing to.</param>
@@ -637,8 +637,8 @@ namespace Amazon.Lambda.Tools
                     var entry = zipArchive.CreateEntry(relativePath);
                     
                     // Set Unix file permissions
-                    // On Windows: set all files to 0777 (matching old build-lambda-zip.exe behavior)
-                    // On Linux: preserve existing file permissions from filesystem (matching old native zip behavior)
+                    // On Windows: set all files to 0777
+                    // On Linux: preserve existing file permissions from filesystem
                     entry.ExternalAttributes = DetermineFilePermissions(absolutePath) << 16;
                     
                     using (var entryStream = entry.Open())
@@ -656,8 +656,8 @@ namespace Amazon.Lambda.Tools
         
         /// <summary>
         /// Determines the Unix file permissions for a given file path.
-        /// On .NET Framework or Windows: returns 0777 for all files (matching old build-lambda-zip.exe behavior)
-        /// On .NET Core/Linux/macOS: returns actual file permissions from filesystem (matching old native zip behavior)
+        /// On .NET Framework or Windows: returns 0777 for all files
+        /// On .NET Core/Linux/macOS: returns actual file permissions from filesystem
         /// </summary>
         /// <param name="filePath">The absolute path of the file.</param>
         /// <returns>Unix file permissions as an integer.</returns>
@@ -669,12 +669,12 @@ namespace Amazon.Lambda.Tools
 #else
             if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
-                // On Windows, set all files to 0777 (rwxrwxrwx) to match old build-lambda-zip.exe behavior
+                // On Windows, set all files to 0777 (rwxrwxrwx)
                 return 0x1FF; // 0777 in octal = 511 in decimal = 0x1FF in hex
             }
             else
             {
-                // On Linux/macOS, get actual file permissions from filesystem to match old native zip behavior
+                // On Linux/macOS, get actual file permissions from filesystem
                 try
                 {
                     var mode = File.GetUnixFileMode(filePath);
